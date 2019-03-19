@@ -12,6 +12,7 @@ from sqlalchemy import func
 from typing import List
 
 from anghari_db import Watchables, Status, Episodes, get_session
+from utils.download import getvidlink_from_watchasian
 
 # Initialize logger
 if not os.path.exists(LOG_FOLDER):
@@ -93,6 +94,17 @@ def handle_new():
         dl_fullname = os.path.join(base_path, f'{base_info.title} Episode {ticket.episode}.mp4')
 
         try:
+            try:
+                # we always want from streamango
+                streamango_link = getvidlink_from_watchasian(ticket.base_link, 'streamango')
+                with get_session() as session:
+                    session.query(Episodes).\
+                        filter(Episodes.episodes_id == ticket.episodes_id).\
+                        update({Episodes.download_link: streamango_link, Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
+                    session.commit()
+                ticket.download_link = streamango_link
+            except:
+                log('fail to get streamango link...')
             xxx = download_video(ticket.download_link, dl_fullname)
             log(f'Download success for {xxx}')
         except URLError as ex:
