@@ -49,7 +49,7 @@ def get_from_embed(embed: str) -> str:
             return jkp[st+7:ed-1]
 
 
-def get_video_link(site: str) -> str:
+def get_video_link(site: str, source: str = None) -> str:
     log(f'Finding video link from page <{site}>...')
     header = {'User-Agent': USER_AGENT}
     req = urllib.request.Request(site, None, header)
@@ -58,18 +58,33 @@ def get_video_link(site: str) -> str:
     htmlstr = bytecode.decode()
 
     scnd_set = []
-    found_iframe = False
-    for html_line in htmlstr.split('\n'):
-        if 'watch_video watch-iframe' in html_line:
-            found_iframe = True
-        if found_iframe:
-            scnd_set.append(html_line)
-            if '</div>' in html_line:
-                break
-
-    start = scnd_set[1].find('src="')
-    end = scnd_set[1].find(' target=')
-    embed_link: str = 'https:' + scnd_set[1][start + 5:end - 1]
+    if source is None:
+        found_iframe = False
+        for html_line in htmlstr.split('\n'):
+            if 'watch_video watch-iframe' in html_line:
+                found_iframe = True
+            if found_iframe:
+                scnd_set.append(html_line)
+                if '</div>' in html_line:
+                    break
+        start = scnd_set[1].find('src="')
+        end = scnd_set[1].find(' target=')
+        embed_link = 'https:' + scnd_set[1][start + 5:end - 1]
+    else:
+        streamer_list = False
+        for html_line in htmlstr.split('\n'):
+            if '<div class="anime_muti_link"' in html_line:
+                streamer_list = True
+            if streamer_list and '<li class=' in html_line:
+                ind_s = html_line.find('<li class=') + 11
+                ind_e = html_line.find(' rel') - 1
+                streamer_name = html_line[ind_s:ind_e]
+                log(f'streamer name: {streamer_name}')
+                if source in streamer_name:
+                    ind_s = html_line.find('data-video=') + 12
+                    ind_e = html_line.find('">')
+                    embed_link = html_line[ind_s:ind_e]
+                    break
     return get_from_embed(embed_link)
 
 
@@ -106,7 +121,7 @@ def divide():
                 update({Watchables.episodes: len(dct_episodes.keys())}, synchronize_session=False)
             for ep in dct_episodes.keys():
                 print(ep)
-                dl_link = get_video_link(dct_episodes[ep])
+                dl_link = get_video_link(dct_episodes[ep], None)
                 print(dl_link)
                 if dl_link is not None:
                     epi = Episodes(id=row.id, episode=ep, status='new',
