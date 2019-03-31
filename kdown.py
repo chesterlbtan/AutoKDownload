@@ -1,4 +1,3 @@
-
 from data.settings import LOG_FOLDER, DOWNLOAD_FOLDER
 import datetime
 import logging
@@ -82,8 +81,8 @@ def handle_new():
         if status_info.location == '':
             base_path = os.path.join(os.path.abspath(DOWNLOAD_FOLDER), f'[{base_info.year}] {base_info.title}')
             with get_session() as session:
-                session.query(Status).\
-                    filter(Status.id == ticket.id).\
+                session.query(Status). \
+                    filter(Status.id == ticket.id). \
                     update({Status.location: base_path, Status.lastupdate: datetime.datetime.today()},
                            synchronize_session=False)
                 session.commit()
@@ -94,17 +93,21 @@ def handle_new():
         dl_fullname = os.path.join(base_path, f'{base_info.title} Episode {ticket.episode}.mp4')
 
         try:
-            try:
-                # we always want from streamango
-                streamango_link = getvidlink_from_watchasian(ticket.base_link, 'streamango')
-                with get_session() as session:
-                    session.query(Episodes).\
-                        filter(Episodes.episodes_id == ticket.episodes_id).\
-                        update({Episodes.download_link: streamango_link, Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
-                    session.commit()
-                ticket.download_link = streamango_link
-            except:
-                log('fail to get streamango link...')
+            providers = ['streamango', 'kvid']
+            for prov in providers:
+                try:
+                    new_link = getvidlink_from_watchasian(ticket.base_link, prov)
+                    break
+                except LookupError:
+                    log(f'fail to get {prov} link...')
+
+            with get_session() as session:
+                session.query(Episodes). \
+                    filter(Episodes.episodes_id == ticket.episodes_id). \
+                    update({Episodes.download_link: new_link, Episodes.lastupdate: datetime.datetime.today()},
+                           synchronize_session=False)
+                session.commit()
+            ticket.download_link = new_link
             xxx = download_video(ticket.download_link, dl_fullname)
             log(f'Download success for {xxx}')
         except URLError as ex:
@@ -114,24 +117,30 @@ def handle_new():
             if 'SSL: CERTIFICATE_VERIFY_FAILED' in url_err_msg:
                 log('invalid video link, we will move this ticket to stage2 folder')
                 with get_session() as session:
-                    session.query(Episodes).\
-                        filter(Episodes.episodes_id == ticket.episodes_id).\
-                        update({Episodes.status: 'hls', Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
+                    session.query(Episodes). \
+                        filter(Episodes.episodes_id == ticket.episodes_id). \
+                        update({Episodes.status: 'hls', Episodes.lastupdate: datetime.datetime.today()},
+                               synchronize_session=False)
                     session.commit()
             elif 'Forbidden' in url_err_msg:
                 log('video link has expired, this ticket need to be regenerated')
                 with get_session() as session:
-                    session.query(Episodes).\
-                        filter(Episodes.episodes_id == ticket.episodes_id).\
-                        update({Episodes.status: 'forbidden', Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
+                    session.query(Episodes). \
+                        filter(Episodes.episodes_id == ticket.episodes_id). \
+                        update({Episodes.status: 'forbidden', Episodes.lastupdate: datetime.datetime.today()},
+                               synchronize_session=False)
                     session.commit()
             else:
                 log('unknown error')
                 with get_session() as session:
-                    session.query(Episodes).\
-                        filter(Episodes.episodes_id == ticket.episodes_id).\
-                        update({Episodes.status: 'dl error', Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
+                    session.query(Episodes). \
+                        filter(Episodes.episodes_id == ticket.episodes_id). \
+                        update({Episodes.status: 'dl error', Episodes.lastupdate: datetime.datetime.today()},
+                               synchronize_session=False)
                     session.commit()
+        except Exception as kew:
+            logging.exception(kew)
+            continue
         else:
             ended = time.time()
             duration = ended - started
@@ -141,17 +150,18 @@ def handle_new():
                 session.query(Episodes). \
                     filter(Episodes.episodes_id == ticket.episodes_id). \
                     update({Episodes.status: 'done', Episodes.location: dl_fullname, Episodes.progress: 100.0,
-                            Episodes.size: size, Episodes.duration: duration, Episodes.lastupdate: datetime.datetime.today()},
+                            Episodes.size: size, Episodes.duration: duration,
+                            Episodes.lastupdate: datetime.datetime.today()},
                            synchronize_session=False)
                 session.commit()
 
                 # update the Status table
-                numerator = session.query(func.count(Episodes.status)).\
+                numerator = session.query(func.count(Episodes.status)). \
                     filter(Episodes.id == ticket.id).filter(Episodes.status == 'done').first()
                 denominator = session.query(func.count(Episodes.status)).filter(Episodes.id == ticket.id).first()
                 print(f'{numerator} / {denominator}')
                 epp = numerator[0] / denominator[0] * 100
-                session.query(Status).filter(Status.id == ticket.id).\
+                session.query(Status).filter(Status.id == ticket.id). \
                     update({Status.progress: epp}, synchronize_session=False)
                 session.commit()
 
@@ -168,8 +178,8 @@ def handle_forbidden():
         from divide import get_video_link
         new_link = get_video_link(ticket.base_link)
         with get_session() as session:
-            session.query(Episodes).\
-                filter(Episodes.episodes_id == ticket.episodes_id).\
+            session.query(Episodes). \
+                filter(Episodes.episodes_id == ticket.episodes_id). \
                 update({Episodes.download_link: new_link,
                         Episodes.status: 'new',
                         Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
@@ -205,7 +215,8 @@ def handle_hls():
                 session.query(Episodes). \
                     filter(Episodes.episodes_id == ticket.episodes_id). \
                     update({Episodes.status: 'done', Episodes.location: vid_name, Episodes.progress: 100.0,
-                            Episodes.size: size, Episodes.duration: duration, Episodes.lastupdate: datetime.datetime.today()},
+                            Episodes.size: size, Episodes.duration: duration,
+                            Episodes.lastupdate: datetime.datetime.today()},
                            synchronize_session=False)
                 session.commit()
 
