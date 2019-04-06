@@ -79,7 +79,7 @@ def handle_new():
             status_info: Status = session.query(Status).filter(Status.id == ticket.id).first()
         log(f'processing {base_info.title} Episode {ticket.episode}')
         if status_info.location == '':
-            base_path = os.path.join(os.path.abspath(DOWNLOAD_FOLDER), f'[{base_info.year}] {base_info.title}')
+            base_path = os.path.join(os.path.abspath(DOWNLOAD_FOLDER), f'[{base_info.year}] - {base_info.title}')
             with get_session() as session:
                 session.query(Status). \
                     filter(Status.id == ticket.id). \
