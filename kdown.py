@@ -79,10 +79,10 @@ def handle_new():
             status_info: Status = session.query(Status).filter(Status.id == ticket.id).first()
         log(f'processing {base_info.title} Episode {ticket.episode}')
         if status_info.location == '':
-            base_path = os.path.join(os.path.abspath(DOWNLOAD_FOLDER), f'[{base_info.year}] {base_info.title}')
+            base_path = os.path.join(os.path.abspath(DOWNLOAD_FOLDER), f'[{base_info.year}] - {base_info.title}')
             with get_session() as session:
-                session.query(Status). \
-                    filter(Status.id == ticket.id). \
+                session.query(Status).\
+                    filter(Status.id == ticket.id).\
                     update({Status.location: base_path, Status.lastupdate: datetime.datetime.today()},
                            synchronize_session=False)
                 session.commit()
@@ -102,8 +102,8 @@ def handle_new():
                     log(f'fail to get {prov} link...')
 
             with get_session() as session:
-                session.query(Episodes). \
-                    filter(Episodes.episodes_id == ticket.episodes_id). \
+                session.query(Episodes).\
+                    filter(Episodes.episodes_id == ticket.episodes_id).\
                     update({Episodes.download_link: new_link, Episodes.lastupdate: datetime.datetime.today()},
                            synchronize_session=False)
                 session.commit()
@@ -117,24 +117,24 @@ def handle_new():
             if 'SSL: CERTIFICATE_VERIFY_FAILED' in url_err_msg:
                 log('invalid video link, we will move this ticket to stage2 folder')
                 with get_session() as session:
-                    session.query(Episodes). \
-                        filter(Episodes.episodes_id == ticket.episodes_id). \
+                    session.query(Episodes).\
+                        filter(Episodes.episodes_id == ticket.episodes_id).\
                         update({Episodes.status: 'hls', Episodes.lastupdate: datetime.datetime.today()},
                                synchronize_session=False)
                     session.commit()
             elif 'Forbidden' in url_err_msg:
                 log('video link has expired, this ticket need to be regenerated')
                 with get_session() as session:
-                    session.query(Episodes). \
-                        filter(Episodes.episodes_id == ticket.episodes_id). \
+                    session.query(Episodes).\
+                        filter(Episodes.episodes_id == ticket.episodes_id).\
                         update({Episodes.status: 'forbidden', Episodes.lastupdate: datetime.datetime.today()},
                                synchronize_session=False)
                     session.commit()
             else:
                 log('unknown error')
                 with get_session() as session:
-                    session.query(Episodes). \
-                        filter(Episodes.episodes_id == ticket.episodes_id). \
+                    session.query(Episodes).\
+                        filter(Episodes.episodes_id == ticket.episodes_id).\
                         update({Episodes.status: 'dl error', Episodes.lastupdate: datetime.datetime.today()},
                                synchronize_session=False)
                     session.commit()
@@ -161,8 +161,11 @@ def handle_new():
                 denominator = session.query(func.count(Episodes.status)).filter(Episodes.id == ticket.id).first()
                 print(f'{numerator} / {denominator}')
                 epp = numerator[0] / denominator[0] * 100
+                update_dict = {Status.progress: epp}
+                if numerator[0] == denominator[0]:
+                    update_dict[Status.status] = 'done'
                 session.query(Status).filter(Status.id == ticket.id). \
-                    update({Status.progress: epp}, synchronize_session=False)
+                    update(update_dict, synchronize_session=False)
                 session.commit()
 
 
@@ -178,8 +181,8 @@ def handle_forbidden():
         from divide import get_video_link
         new_link = get_video_link(ticket.base_link)
         with get_session() as session:
-            session.query(Episodes). \
-                filter(Episodes.episodes_id == ticket.episodes_id). \
+            session.query(Episodes).\
+                filter(Episodes.episodes_id == ticket.episodes_id).\
                 update({Episodes.download_link: new_link,
                         Episodes.status: 'new',
                         Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
