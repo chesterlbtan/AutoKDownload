@@ -97,7 +97,7 @@ def handle_new():
             for prov in providers:
                 try:
                     new_link = getvidlink_from_watchasian(ticket.base_link, prov)
-                    break
+                    log(f'successfully retrieve link from {prov}: {new_link}')
                 except LookupError:
                     log(f'fail to get {prov} link...')
                     if prov == providers[-1]:
