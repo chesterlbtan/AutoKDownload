@@ -81,8 +81,8 @@ def handle_new():
         if status_info.location == '':
             base_path = os.path.join(os.path.abspath(DOWNLOAD_FOLDER), f'[{base_info.year}] - {base_info.title}')
             with get_session() as session:
-                session.query(Status).\
-                    filter(Status.id == ticket.id).\
+                session.query(Status). \
+                    filter(Status.id == ticket.id). \
                     update({Status.location: base_path, Status.lastupdate: datetime.datetime.today()},
                            synchronize_session=False)
                 session.commit()
@@ -100,16 +100,25 @@ def handle_new():
                     break
                 except LookupError:
                     log(f'fail to get {prov} link...')
+                    if prov == providers[-1]:
+                        raise
+                    continue
 
-            with get_session() as session:
-                session.query(Episodes).\
-                    filter(Episodes.episodes_id == ticket.episodes_id).\
-                    update({Episodes.download_link: new_link, Episodes.lastupdate: datetime.datetime.today()},
-                           synchronize_session=False)
-                session.commit()
-            ticket.download_link = new_link
-            xxx = download_video(ticket.download_link, dl_fullname)
-            log(f'Download success for {xxx}')
+                try:
+                    with get_session() as session:
+                        session.query(Episodes). \
+                            filter(Episodes.episodes_id == ticket.episodes_id). \
+                            update({Episodes.download_link: new_link, Episodes.lastupdate: datetime.datetime.today()},
+                                   synchronize_session=False)
+                        session.commit()
+                    ticket.download_link = new_link
+                    xxx = download_video(ticket.download_link, dl_fullname)
+                    log(f'Download success for {xxx}')
+                    break
+                except requests.exceptions.ChunkedEncodingError:
+                    log('Connection Reset Error, ChunkedEncodingError')
+                    if prov == providers[-1]:
+                        raise
         except URLError as ex:
             # ex.reason can only be retrieved once
             url_err_msg = str(ex.reason)
@@ -117,24 +126,24 @@ def handle_new():
             if 'SSL: CERTIFICATE_VERIFY_FAILED' in url_err_msg:
                 log('invalid video link, we will move this ticket to stage2 folder')
                 with get_session() as session:
-                    session.query(Episodes).\
-                        filter(Episodes.episodes_id == ticket.episodes_id).\
+                    session.query(Episodes). \
+                        filter(Episodes.episodes_id == ticket.episodes_id). \
                         update({Episodes.status: 'hls', Episodes.lastupdate: datetime.datetime.today()},
                                synchronize_session=False)
                     session.commit()
             elif 'Forbidden' in url_err_msg:
                 log('video link has expired, this ticket need to be regenerated')
                 with get_session() as session:
-                    session.query(Episodes).\
-                        filter(Episodes.episodes_id == ticket.episodes_id).\
+                    session.query(Episodes). \
+                        filter(Episodes.episodes_id == ticket.episodes_id). \
                         update({Episodes.status: 'forbidden', Episodes.lastupdate: datetime.datetime.today()},
                                synchronize_session=False)
                     session.commit()
             else:
                 log('unknown error')
                 with get_session() as session:
-                    session.query(Episodes).\
-                        filter(Episodes.episodes_id == ticket.episodes_id).\
+                    session.query(Episodes). \
+                        filter(Episodes.episodes_id == ticket.episodes_id). \
                         update({Episodes.status: 'dl error', Episodes.lastupdate: datetime.datetime.today()},
                                synchronize_session=False)
                     session.commit()
@@ -181,8 +190,8 @@ def handle_forbidden():
         from divide import get_video_link
         new_link = get_video_link(ticket.base_link)
         with get_session() as session:
-            session.query(Episodes).\
-                filter(Episodes.episodes_id == ticket.episodes_id).\
+            session.query(Episodes). \
+                filter(Episodes.episodes_id == ticket.episodes_id). \
                 update({Episodes.download_link: new_link,
                         Episodes.status: 'new',
                         Episodes.lastupdate: datetime.datetime.today()}, synchronize_session=False)
