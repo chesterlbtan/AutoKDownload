@@ -7,6 +7,7 @@ from urllib.error import URLError
 import requests
 import subprocess
 import time
+import tqdm
 from sqlalchemy import func
 from typing import List
 
@@ -29,6 +30,37 @@ if not os.path.exists(DOWNLOAD_FOLDER):
 def log(message: str):
     print(message)
     logging.info(message)
+
+
+def download_openload_file(url, filename=None, csize=1000, quiet=False):
+    r = requests.get(url, stream=True)
+    file_size = int(r.headers["Content-Length"])
+    if filename is None:
+        filename = r.url.split("/")[-1]
+    if os.path.exists(filename):
+        first_byte = os.path.getsize(
+            filename
+        )
+    else:
+        first_byte = 0
+    if first_byte >= file_size:
+        return file_size
+    r = requests.get(
+        url, headers={"Range": "bytes=%s-%s" % (first_byte, file_size)}, stream=True
+    )
+    with tqdm.tqdm(
+        total=file_size,
+        initial=first_byte,
+        unit="B",
+        unit_scale=True,
+        desc=filename[0:6] + "..." + filename[-7:],
+        disable=quiet,
+    ) as pbar:
+        with open(filename, "ab") as fp:
+            for chunk in r.iter_content(chunk_size=csize):
+                fp.write(chunk)
+                pbar.update(csize)
+    return filename
 
 
 def download_video(dl_link: str, dl_name: str):
@@ -93,7 +125,7 @@ def handle_new():
         dl_fullname = os.path.join(base_path, f'{base_info.title} Episode {ticket.episode}.mp4')
 
         try:
-            providers = ['streamango', 'kvid']
+            providers = ['openload', 'streamango', 'kvid']
             for prov in providers:
                 try:
                     new_link = getvidlink_from_watchasian(ticket.base_link, prov)
@@ -112,7 +144,10 @@ def handle_new():
                                    synchronize_session=False)
                         session.commit()
                     ticket.download_link = new_link
-                    xxx = download_video(ticket.download_link, dl_fullname)
+                    if prov == 'openload':
+                        xxx = download_openload_file(ticket.download_link, dl_fullname)
+                    else:
+                        xxx = download_video(ticket.download_link, dl_fullname)
                     log(f'Download success for {xxx}')
                     break
                 except requests.exceptions.ChunkedEncodingError:

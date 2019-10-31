@@ -9,6 +9,22 @@ USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 ' \
 website = 'https://www13.watchasian.co/my-id-is-gangnam-beauty-episode-1.html'
 
 
+def get_providers(baselink: str) -> dict:
+    req = urllib.request.Request(baselink, headers={'User-Agent': USER_AGENT})
+    r = urllib.request.urlopen(req)
+    bytecode = r.read()
+    htmlstr = bytecode.decode()
+    soup = BeautifulSoup(htmlstr, 'html.parser')
+
+    providers = {}
+    one_set_streamers = soup.find(attrs={'class': 'anime_muti_link'})
+    for streamer in one_set_streamers.find_all('li'):
+        streamer_name = ' '.join(streamer['class'])
+        vid_link = streamer['data-video']
+        providers[streamer_name] = vid_link
+    return providers
+
+
 def getvidlink_from_watchasian(baselink: str, provider: str) -> str:
     req = urllib.request.Request(baselink, headers={'User-Agent': USER_AGENT})
     r = urllib.request.urlopen(req)
@@ -30,7 +46,7 @@ def getvidlink_from_watchasian(baselink: str, provider: str) -> str:
     if 'http' not in embed_link:
         embed_link = f'https:{embed_link}'
     print(embed_link)
-    getembed = {'streamango': getembed_streamango, 'kvid': getembed_kvid}
+    getembed = {'streamango': getembed_streamango, 'kvid': getembed_kvid, 'openload': getembed_openload}
     return getembed[provider](embed_link)
 
 
@@ -55,6 +71,22 @@ def getembed_streamango(link: str) -> str:
     vid_link = driver.current_url
     driver.quit()
     return vid_link
+
+
+def getembed_openload(link: str) -> str:
+    fox_opt = webdriver.FirefoxOptions()
+    fox_opt.add_argument('--headless')
+    driver = webdriver.Firefox(options=fox_opt)
+    driver.get(link)
+    dl_link = driver.find_element_by_css_selector('#DtsBlkVFQx').get_attribute('textContent')
+    print(dl_link)
+    driver.quit()
+    temp_link = "https://openload.co" + "/stream/" + dl_link
+    print(temp_link)
+    import requests
+    full_link = requests.get(temp_link, allow_redirects=False)
+    temp_link = full_link.headers['location']
+    return temp_link
 
 
 def getembed_kvid(link: str) -> str:
@@ -85,3 +117,11 @@ def getembed_kvid(link: str) -> str:
         for vlink in vid_link:
             if '.mp4' in vlink:
                 return vlink
+
+
+if __name__ == "__main__":
+    qw = get_providers('https://www13.watchasian.co/please-come-back-mister-episode-12.html')
+    for q in qw:
+        print(f'{q}: {qw[q]}')
+    link = getembed_openload('https://openload.co/embed/JTSDPDSW5UE')
+    print(link)
