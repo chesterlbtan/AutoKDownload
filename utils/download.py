@@ -1,7 +1,9 @@
 import time
 import urllib.request
 from bs4 import BeautifulSoup
+import requests
 from selenium import webdriver
+from selenium.common.exceptions import WebDriverException
 
 # Retrieving the basic input stuffs
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 ' \
@@ -21,32 +23,18 @@ def get_providers(baselink: str) -> dict:
     for streamer in one_set_streamers.find_all('li'):
         streamer_name = ' '.join(streamer['class'])
         vid_link = streamer['data-video']
+        if 'http' not in vid_link:
+            vid_link = f'https:{vid_link}'
         providers[streamer_name] = vid_link
     return providers
 
 
-def getvidlink_from_watchasian(baselink: str, provider: str) -> str:
-    req = urllib.request.Request(baselink, headers={'User-Agent': USER_AGENT})
-    r = urllib.request.urlopen(req)
-    bytecode = r.read()
-    htmlstr = bytecode.decode()
-    soup = BeautifulSoup(htmlstr, 'html.parser')
-
-    one_set_streamers = soup.find(attrs={'class': 'anime_muti_link'})
-    for streamer in one_set_streamers.find_all('li'):
-        streamer_name = ' '.join(streamer['class'])
-        vid_link = streamer['data-video']
-        print(f'{streamer_name}: {vid_link}')
-        if streamer_name in provider:
-            embed_link = vid_link
-    if embed_link is None or embed_link == '':
-        print(f'{provider} not found from the list')
-        raise LookupError(f'{provider} not found from the list')
-
-    if 'http' not in embed_link:
-        embed_link = f'https:{embed_link}'
-    print(embed_link)
-    getembed = {'streamango': getembed_streamango, 'kvid': getembed_kvid, 'openload': getembed_openload}
+def getembed_from_watchasian(embed_link: str, provider: str) -> str:
+    getembed = {'streamango': getembed_streamango,
+                'kvid': getembed_kvid,
+                'openload': getembed_openload,
+                'mp4upload': getembed_mp4upload,
+                'xstreamcdn': getembed_xstreamcdn}
     return getembed[provider](embed_link)
 
 
@@ -55,21 +43,27 @@ def getembed_streamango(link: str) -> str:
     # profile = webdriver.FirefoxProfile()
     # Set a user agent string to help parse webserver logs easily
     # profile.set_preference("general.useragent.override", "Mozilla/5.0 (X11; Linux x86_64; rv:52.0) Gecko/20100101 selenium.py")
-    driver = webdriver.Firefox()
-    driver.get(link)
-    embed_html = driver.page_source
-    embed_soup = BeautifulSoup(embed_html, 'html.parser')
-    video_tag = embed_soup.find(id='mgvideo_html5_api')
-    print(video_tag['src'])
+    fox_opt = webdriver.FirefoxOptions()
+    fox_opt.add_argument('--headless')
+    driver = webdriver.Firefox(options=fox_opt)
+    try:
+        driver.get(link)
+        embed_html = driver.page_source
+        embed_soup = BeautifulSoup(embed_html, 'html.parser')
+        video_tag = embed_soup.find(id='mgvideo_html5_api')
+        print(video_tag['src'])
 
-    vid_link = video_tag['src']
-    if 'http' not in vid_link:
-        vid_link = f'https:{vid_link}'
-    print(vid_link)
-    driver.get(vid_link)
-    time.sleep(2)
-    vid_link = driver.current_url
-    driver.quit()
+        vid_link = video_tag['src']
+        if 'http' not in vid_link:
+            vid_link = f'https:{vid_link}'
+        print(vid_link)
+        driver.get(vid_link)
+        time.sleep(2)
+        vid_link = driver.current_url
+    except WebDriverException as wde:
+        raise LookupError(wde.msg)
+    finally:
+        driver.quit()
     return vid_link
 
 
@@ -83,10 +77,42 @@ def getembed_openload(link: str) -> str:
     driver.quit()
     temp_link = "https://openload.co" + "/stream/" + dl_link
     print(temp_link)
-    import requests
     full_link = requests.get(temp_link, allow_redirects=False)
     temp_link = full_link.headers['location']
     return temp_link
+
+
+def getembed_mp4upload(link: str) -> str:
+    print(f'Finding video link from mp4upload page <{link}>...')
+    fox_opt = webdriver.FirefoxOptions()
+    fox_opt.add_argument('--headless')
+    driver = webdriver.Firefox(options=fox_opt)
+    try:
+        driver.get(link)
+        dl_link = driver.find_element_by_id('vid_html5_api').get_attribute('src')
+        return dl_link
+    finally:
+        driver.quit()
+
+
+def getembed_xstreamcdn(link: str) -> str:
+    print(f'Finding video link from xstreamcdn page <{link}>...')
+    fox_opt = webdriver.FirefoxOptions()
+    fox_opt.add_argument('--headless')
+    driver = webdriver.Firefox(options=fox_opt)
+    try:
+        driver.get(link)
+        driver.find_element_by_tag_name('body').click()
+        time.sleep(1)
+        driver.find_element_by_tag_name('body').click()
+        time.sleep(1)
+        driver.find_element_by_tag_name('body').click()
+        dl_link = driver.find_element_by_tag_name('video').get_attribute('src')
+        full_link = requests.get(dl_link, allow_redirects=False)
+        temp_link = full_link.headers['location']
+        return temp_link
+    finally:
+        driver.quit()
 
 
 def getembed_kvid(link: str) -> str:
@@ -117,11 +143,12 @@ def getembed_kvid(link: str) -> str:
         for vlink in vid_link:
             if '.mp4' in vlink:
                 return vlink
+        raise LookupError('no mp4 link available')
 
 
 if __name__ == "__main__":
-    qw = get_providers('https://www13.watchasian.co/please-come-back-mister-episode-12.html')
-    for q in qw:
-        print(f'{q}: {qw[q]}')
-    link = getembed_openload('https://openload.co/embed/JTSDPDSW5UE')
+    # qw = get_providers('https://www13.watchasian.co/please-come-back-mister-episode-12.html')
+    # for q in qw:
+    #     print(f'{q}: {qw[q]}')
+    link = getembed_xstreamcdn('https://gcloud.live/v/7y9wg658xoj')
     print(link)

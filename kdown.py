@@ -12,7 +12,7 @@ from sqlalchemy import func
 from typing import List
 
 from anghari_db import Watchables, Status, Episodes, get_session
-from utils.download import getvidlink_from_watchasian
+from utils.download import getembed_from_watchasian, get_providers
 
 # Initialize logger
 if not os.path.exists(LOG_FOLDER):
@@ -37,14 +37,7 @@ def download_openload_file(url, filename=None, csize=1000, quiet=False):
     file_size = int(r.headers["Content-Length"])
     if filename is None:
         filename = r.url.split("/")[-1]
-    if os.path.exists(filename):
-        first_byte = os.path.getsize(
-            filename
-        )
-    else:
-        first_byte = 0
-    if first_byte >= file_size:
-        return file_size
+    first_byte = 0
     r = requests.get(
         url, headers={"Range": "bytes=%s-%s" % (first_byte, file_size)}, stream=True
     )
@@ -56,7 +49,7 @@ def download_openload_file(url, filename=None, csize=1000, quiet=False):
         desc=filename[0:6] + "..." + filename[-7:],
         disable=quiet,
     ) as pbar:
-        with open(filename, "ab") as fp:
+        with open(filename, "wb") as fp:
             for chunk in r.iter_content(chunk_size=csize):
                 fp.write(chunk)
                 pbar.update(csize)
@@ -78,21 +71,20 @@ def download_video(dl_link: str, dl_name: str):
 
     r = requests.get(dl_link, stream=True)
     ch_sz = 1024
-    c_size = 0
-    l_size = 0
-    xt = datetime.datetime.now()
-    with open(dl_name, 'wb') as f:
-        for chunk in r.iter_content(chunk_size=ch_sz):
-            if chunk:  # filter out keep-alive new chunks
-                f.write(chunk)
-                c_size = c_size + ch_sz
-                # f.flush() commented by recommendation from J.F.Sebastian
-            if (datetime.datetime.now() - xt).total_seconds() > 30:
-                speed = (c_size - l_size) / (datetime.datetime.now() - xt).total_seconds() / 1000
-                log(f'[{c_size / size * 100} %] {c_size / 1000000} of {size / 1000000} MB, {speed}kb/sec')
-                xt = datetime.datetime.now()
-                l_size = c_size
-
+    with tqdm.tqdm(
+        total=size,
+        initial=0,
+        unit="B",
+        unit_scale=True,
+        desc=dl_name[0:6] + "..." + dl_name[-7:],
+        disable=False,
+    ) as pbar:
+        with open(dl_name, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=ch_sz):
+                if chunk:  # filter out keep-alive new chunks
+                    f.write(chunk)
+                    # f.flush() commented by recommendation from J.F.Sebastian
+                    pbar.update(ch_sz)
     end = datetime.datetime.now()
     duration = end - start
     log(f'downloading took {duration.total_seconds()} seconds')
@@ -125,14 +117,22 @@ def handle_new():
         dl_fullname = os.path.join(base_path, f'{base_info.title} Episode {ticket.episode}.mp4')
 
         try:
-            providers = ['openload', 'streamango', 'kvid']
-            for prov in providers:
+            providers = get_providers(ticket.base_link)
+            # print the providers for debugging
+            for src in providers:
+                log(f'{src}: {providers[src]}')
+
+            wanted_prov = ['openload', 'xstreamcdn', 'streamango', 'kvid']
+            for prov in wanted_prov:
+                if prov not in providers.keys():
+                    log(f'No [{prov}] link found...')
+                    continue
                 try:
-                    new_link = getvidlink_from_watchasian(ticket.base_link, prov)
+                    new_link = getembed_from_watchasian(providers[prov], prov)
                     log(f'successfully retrieve link from {prov}: {new_link}')
                 except LookupError:
-                    log(f'fail to get {prov} link...')
-                    if prov == providers[-1]:
+                    log(f'Failed to get [{prov}] link...')
+                    if prov == wanted_prov[-1]:
                         raise
                     continue
 
@@ -152,21 +152,13 @@ def handle_new():
                     break
                 except requests.exceptions.ChunkedEncodingError:
                     log('Connection Reset Error, ChunkedEncodingError')
-                    if prov == providers[-1]:
+                    if prov == wanted_prov[-1]:
                         raise
         except URLError as ex:
             # ex.reason can only be retrieved once
             url_err_msg = str(ex.reason)
             log(url_err_msg)
-            if 'SSL: CERTIFICATE_VERIFY_FAILED' in url_err_msg:
-                log('invalid video link, we will move this ticket to stage2 folder')
-                with get_session() as session:
-                    session.query(Episodes). \
-                        filter(Episodes.episodes_id == ticket.episodes_id). \
-                        update({Episodes.status: 'hls', Episodes.lastupdate: datetime.datetime.today()},
-                               synchronize_session=False)
-                    session.commit()
-            elif 'Forbidden' in url_err_msg:
+            if 'Forbidden' in url_err_msg:
                 log('video link has expired, this ticket need to be regenerated')
                 with get_session() as session:
                     session.query(Episodes). \
@@ -234,46 +226,11 @@ def handle_forbidden():
         log(f'Download update.')
 
 
-def handle_hls():
-    with get_session() as session:
-        tickets: List[Episodes] = session.query(Episodes).filter(Episodes.status == 'hls').all()
-    log(f'found {len(tickets)} hls links to download')
-    for ticket in tickets:
-        started = time.time()
-        base_info: Watchables = session.query(Watchables).filter(Watchables.id == ticket.id).first()
-        status_info: Status = session.query(Status).filter(Status.id == ticket.id).first()
-
-        link_to_dl = ticket.download_link
-        vid_name = os.path.join(status_info.location, f'{base_info.title} Episode {ticket.episode}.mp4')
-        log(f'HLS download on page <{link_to_dl}>...')
-        # ffmpeg -headers "Referer: https://embed.watchasian.co" -i "url" -c copy -bsf:a aac_adtstoasc "output.mp4"
-        # cmd = f'ffmpeg -i "{link_to_dl}" -c copy -bsf:a aac_adtstoasc "{vid_name}"'
-        cmd = f'ffmpeg -headers "Referer: https://embed.watchasian.co" -i "{link_to_dl}" -c copy "{vid_name}"'
-        log(cmd)
-        subprocess.call(cmd, shell=True)
-        # os.system(cmd)
-
-        ended = time.time()
-        duration = ended - started
-
-        if os.path.exists(vid_name):
-            size = os.path.getsize(vid_name)
-            with get_session() as session:
-                session.query(Episodes). \
-                    filter(Episodes.episodes_id == ticket.episodes_id). \
-                    update({Episodes.status: 'done', Episodes.location: vid_name, Episodes.progress: 100.0,
-                            Episodes.size: size, Episodes.duration: duration,
-                            Episodes.lastupdate: datetime.datetime.today()},
-                           synchronize_session=False)
-                session.commit()
-
-
 def main():
     log("Let's start downloading!!")
     log("")
     handle_new()
     handle_forbidden()
-    handle_hls()
 
 
 if __name__ == "__main__":
