@@ -4,6 +4,9 @@ from bs4 import BeautifulSoup
 import requests
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # Retrieving the basic input stuffs
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 ' \
@@ -34,7 +37,8 @@ def getembed_from_watchasian(embed_link: str, provider: str) -> str:
                 'kvid': getembed_kvid,
                 'openload': getembed_openload,
                 'mp4upload': getembed_mp4upload,
-                'xstreamcdn': getembed_xstreamcdn}
+                'xstreamcdn': getembed_xstreamcdn,
+                'thevideo': getembed_thevideo}
     return getembed[provider](embed_link)
 
 
@@ -115,7 +119,46 @@ def getembed_xstreamcdn(link: str) -> str:
         driver.quit()
 
 
+def getembed_thevideo(link: str) -> str:
+    print(f'Finding video link from thevideo page <{link}>...')
+    fox_opt = webdriver.FirefoxOptions()
+    fox_opt.add_argument('--headless')
+    driver = webdriver.Firefox(options=fox_opt)
+    try:
+        driver.get(link)
+        # time.sleep(3)
+        video_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'video')))
+        dl_link = video_element.get_attribute('src')
+        # full_link = requests.get(dl_link, allow_redirects=False)
+        # temp_link = full_link.headers['location']
+        return dl_link
+    finally:
+        driver.quit()
+
+
 def getembed_kvid(link: str) -> str:
+    fox_opt = webdriver.FirefoxOptions()
+    fox_opt.add_argument('--headless')
+    driver = webdriver.Firefox(options=fox_opt)
+    try:
+        driver.get(link)
+        video_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'video')))
+        dl_link = video_element.get_attribute('src')
+        x = 0
+        while dl_link == '' or x < 3:
+            driver.find_element_by_tag_name('body').click()
+            # video_element.click()
+            # time.sleep(0.2)
+            dl_link = video_element.get_attribute('src')
+            x += 1
+        if dl_link == '':
+            raise LookupError('kvid: no video src found')
+        return dl_link
+    finally:
+        driver.quit()
+
+
+def getembed_kvid_old(link: str) -> str:
     print(f'Finding video link from kvid page <{link}>...')
     header = {'User-Agent': USER_AGENT}
     req = urllib.request.Request(link, None, header)

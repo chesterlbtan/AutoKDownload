@@ -58,6 +58,12 @@ def download_openload_file(url, filename=None, csize=1000, quiet=False):
 
 def download_video(dl_link: str, dl_name: str):
     log(f'accessing link: {dl_link}')
+    if dl_link.startswith('blob:'):
+        ff = requests.get(dl_link)
+        with open(dl_name, 'wb') as f:
+            f.write(ff.content)
+        return
+
     f = urllib.request.urlopen(dl_link)
     if "Content-Length" in f.headers:
         size = int(f.headers["Content-Length"])
@@ -92,6 +98,20 @@ def download_video(dl_link: str, dl_name: str):
     return dl_name
 
 
+def get_dl_link(dctlinks: dict, wanted: str):
+    if wanted not in dctlinks.keys():
+        log(f'No [{wanted}] link found...')
+        raise LookupError
+    try:
+        new_link = getembed_from_watchasian(dctlinks[wanted], wanted)
+        log(f'successfully retrieve link from {wanted}: {new_link}')
+        return new_link
+    except Exception as ex:
+        log(f'Failed to get [{wanted}] link...')
+        logging.error(ex)
+        raise ex
+
+
 def handle_new():
     with get_session() as session:
         tickets: List[Episodes] = session.query(Episodes).filter(Episodes.status == 'new').all()
@@ -101,6 +121,7 @@ def handle_new():
         with get_session() as session:
             base_info: Watchables = session.query(Watchables).filter(Watchables.id == ticket.id).first()
             status_info: Status = session.query(Status).filter(Status.id == ticket.id).first()
+        log(f'')
         log(f'processing {base_info.title} Episode {ticket.episode}')
         if status_info.location == '':
             base_path = os.path.join(os.path.abspath(DOWNLOAD_FOLDER), f'[{base_info.year}] - {base_info.title}')
@@ -122,18 +143,12 @@ def handle_new():
             for src in providers:
                 log(f'{src}: {providers[src]}')
 
-            wanted_prov = ['openload', 'xstreamcdn', 'streamango', 'kvid']
+            wanted_prov = ['xstreamcdn', 'kvid', 'streamango', 'openload', 'thevideo', 'mp4upload']
             for prov in wanted_prov:
-                if prov not in providers.keys():
-                    log(f'No [{prov}] link found...')
-                    continue
                 try:
-                    new_link = getembed_from_watchasian(providers[prov], prov)
-                    log(f'successfully retrieve link from {prov}: {new_link}')
-                except LookupError:
-                    log(f'Failed to get [{prov}] link...')
-                    if prov == wanted_prov[-1]:
-                        raise
+                    new_link = get_dl_link(providers, prov)
+                except Exception as geterr:
+                    logging.exception(geterr)
                     continue
 
                 try:
@@ -147,7 +162,10 @@ def handle_new():
                     if prov == 'openload':
                         xxx = download_openload_file(ticket.download_link, dl_fullname)
                     else:
-                        xxx = download_video(ticket.download_link, dl_fullname)
+                        try:
+                            xxx = download_video(ticket.download_link, dl_fullname)
+                        except:
+                            xxx = download_openload_file(ticket.download_link, dl_fullname)
                     log(f'Download success for {xxx}')
                     break
                 except requests.exceptions.ChunkedEncodingError:
@@ -230,7 +248,7 @@ def main():
     log("Let's start downloading!!")
     log("")
     handle_new()
-    handle_forbidden()
+    # handle_forbidden()
 
 
 if __name__ == "__main__":

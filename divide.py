@@ -110,7 +110,10 @@ def divide():
                 if '</select>' in html_line:
                     break
                 ep_link = base_link + html_line[html_line.find('value="') + 7:html_line.find('">')]
-                ep_num = int(html_line[html_line.find('>Episode ') + 9:html_line.find('</option>')])
+                try:
+                    ep_num = int(html_line[html_line.find('>Episode ') + 9:html_line.find('</option>')])
+                except:
+                    continue
                 dct_episodes[ep_num] = ep_link
             elif '<select onchange' in html_line:
                 found_list = True
@@ -121,8 +124,10 @@ def divide():
                 update({Watchables.episodes: len(dct_episodes.keys())}, synchronize_session=False)
             for ep in dct_episodes.keys():
                 print(ep)
-                dl_link = get_video_link(dct_episodes[ep], None)
-                print(dl_link)
+                try:
+                    dl_link = get_video_link(dct_episodes[ep], None)
+                except:
+                    dl_link = ''
                 if dl_link is not None:
                     epi = Episodes(id=row.id, episode=ep, status='new',
                                    base_link=dct_episodes[ep],
